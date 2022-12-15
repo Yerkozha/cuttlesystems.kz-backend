@@ -4,7 +4,7 @@ from typing import List, Optional
 import requests
 
 from b_logic.bot_api.i_bot_api import IBotApi, BotApiException
-from b_logic.data_objects import BotDescription, BotMessage, BotVariant
+from b_logic.data_objects import BotDescription, BotMessage, BotVariant, ButtonTypes
 
 
 class BotApiByRequests(IBotApi):
@@ -39,10 +39,10 @@ class BotApiByRequests(IBotApi):
                 }
             )
             if response.status_code != requests.status_codes.codes.ok:
-                raise BotApiException('Ошибка аутентификации пользователя {0}'.format(response.text))
+                raise BotApiException('User authentication error {0}'.format(response.text))
             self._auth_token = json.loads(response.text)['auth_token']
         except requests.exceptions.ConnectionError as connection_error:
-            raise BotApiException('Ошибка подключения')
+            raise BotApiException(f'Connection error: {connection_error}')
 
     def auth_by_token(self, token: str) -> None:
         """
@@ -52,30 +52,6 @@ class BotApiByRequests(IBotApi):
         """
         assert isinstance(token, str)
         self._auth_token = token
-
-    def create_bot(self, bot_name: str, bot_token: str, bot_description: str) -> BotDescription:
-        """
-        Создать бота
-        Args:
-            bot_name: название бота
-            bot_token: токен бота
-            bot_description: описание бота
-
-        Returns:
-            объект созданного бота
-        """
-        response = requests.post(
-            self._suite_url + 'api/bots/',
-            {
-                'name': bot_name,
-                'token': bot_token,
-                'description': bot_description
-            },
-            headers=self._get_headers()
-        )
-        if response.status_code != requests.status_codes.codes.created:
-            raise BotApiException('Ошибка при создании бота: {0}'.format(response.text))
-        return self._create_bot_obj_from_data(json.loads(response.text))
 
     def get_bots(self) -> List[BotDescription]:
         """
@@ -94,6 +70,31 @@ class BotApiByRequests(IBotApi):
         for bot_dict in bots_dict_list:
             bots_list.append(self._create_bot_obj_from_data(bot_dict))
         return bots_list
+
+    def create_bot(self, bot_name: str, bot_token: str, bot_description: str) -> BotDescription:
+        """
+        Создать бота
+        Args:
+            bot_name: название бота
+            bot_token: токен бота
+            bot_description: описание бота
+
+        Returns:
+            объект созданного бота
+        """
+        bot = BotDescription(
+            bot_name=bot_name,
+            bot_token=bot_token,
+            bot_description=bot_description
+        )
+        response = requests.post(
+            self._suite_url + 'api/bots/',
+            self._create_bot_dict_from_obj(bot),
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.created:
+            raise BotApiException('Ошибка при создании бота: {0}'.format(response.text))
+        return self._create_bot_obj_from_data(json.loads(response.text))
 
     def get_bot_by_id(self, id: int) -> BotDescription:
         """
@@ -115,13 +116,10 @@ class BotApiByRequests(IBotApi):
 
     def change_bot(self, bot: BotDescription) -> None:
         assert isinstance(bot.id, int)
+        bot_dict = self._create_bot_dict_from_obj(bot)
         response = requests.patch(
             self._suite_url + f'api/bots/{bot.id}/',
-            {
-                'name': bot.bot_name,
-                'token': bot.bot_token,
-                'description': bot.bot_description
-            },
+            bot_dict,
             headers=self._get_headers()
         )
         if response.status_code != requests.status_codes.codes.ok:
@@ -138,33 +136,28 @@ class BotApiByRequests(IBotApi):
             headers=self._get_headers()
         )
         if response.status_code != requests.status_codes.codes.no_content:
-            raise BotApiException(f'Ошибка при удалении бота')
+            raise BotApiException('Ошибка при удалении бота')
 
-    def create_message(self, bot: BotDescription, text: str, x: int, y: int) -> BotMessage:
+    def set_bot_start_message(self, bot: BotDescription, start_message: BotMessage) -> None:
         """
-        Создать сообщение
+        Установить сообщение с которого начнется работа с ботом
         Args:
-            bot: объект бота, для которого создается сообщение
-            text: тест сообщения
-            x: координата по x
-            y: координата по y
-
-        Returns:
-            объект созданного сообщения
+            bot: объект бота
+            start_message: объект сообщения, которое будет установлено в качестве стартового
+        в качестве стартового
         """
         assert isinstance(bot, BotDescription)
-        response = requests.post(
-            self._suite_url + f'api/bots/{bot.id}/messages/',
+        assert isinstance(start_message, BotMessage)
+        response = requests.patch(
+            self._suite_url + f'api/bots/{bot.id}/',
             {
-                'text': text,
-                'coordinate_x': x,
-                'coordinate_y': y,
+                'start_message': start_message.id
             },
             headers=self._get_headers()
         )
-        if response.status_code != requests.status_codes.codes.created:
-            raise BotApiException('Ошибка при создании сообщения: {0}'.format(response.text))
-        return self._create_bot_message_from_data(json.loads(response.text))
+        if response.status_code != requests.status_codes.codes.ok:
+            raise BotApiException('Ошибка при установке стартового сообщения бота: {0}'.format(
+                response.text))
 
     def get_messages(self, bot: BotDescription) -> List[BotMessage]:
         """
@@ -187,27 +180,56 @@ class BotApiByRequests(IBotApi):
             messages_list.append(self._create_bot_message_from_data(message_dict))
         return messages_list
 
-    def create_variant(self, message: BotMessage, text: str) -> BotVariant:
+    def create_message(self, bot: BotDescription, text: str,
+                       keyboard_type: ButtonTypes, x: int, y: int) -> BotMessage:
         """
-        Создание варианта
+        Создать сообщение
         Args:
-            message: объект сообщения для которого создается вариант
-            text: текст создаваемого варианта
+            bot: объект бота, для которого создается сообщение
+            text: тест сообщения
+            x: координата по x
+            y: координата по y
 
         Returns:
-            объект созданного варианта
+            объект созданного сообщения
         """
-        assert isinstance(message, BotMessage)
+        assert isinstance(bot, BotDescription)
+        message = BotMessage(
+            text=text,
+            keyboard_type=keyboard_type,
+            x=x,
+            y=y
+        )
         response = requests.post(
-            self._suite_url + f'api/messages/{message.id}/variants/',
-            {
-                'text': text
-            },
+            url=self._suite_url + f'api/bots/{bot.id}/messages/',
+            data=self._create_message_dict_from_message_obj(message),
             headers=self._get_headers()
         )
         if response.status_code != requests.status_codes.codes.created:
-            raise BotApiException('Ошибка при создании варианта: {0}'.format(response.text))
-        return self._create_variant_from_data(json.loads(response.text))
+            raise BotApiException('Ошибка при создании сообщения: {0}'.format(response.text))
+        return self._create_bot_message_from_data(json.loads(response.text))
+
+    def change_message(self, message: BotMessage) -> None:
+        assert isinstance(message, BotMessage)
+        response = requests.patch(
+            self._suite_url + f'api/message/{message.id}/',
+            self._create_message_dict_from_message_obj(message),
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.ok:
+            raise BotApiException(
+                'Ошибка при изменении сообщения: {0}'.format(response.text))
+
+    def delete_message(self, message: BotMessage):
+        assert isinstance(message, BotMessage)
+        print(f'delete message id {message.id}')
+        response = requests.delete(
+            self._suite_url + f'api/message/{message.id}/',
+            headers=self._get_headers()
+        )
+        print(f'delete response {response.status_code}')
+        if response.status_code != requests.status_codes.codes.no_content:
+            raise BotApiException(f'Ошибка при удалении сообщения: {response.text}')
 
     def get_variants(self, message: BotMessage) -> List[BotVariant]:
         """
@@ -232,6 +254,45 @@ class BotApiByRequests(IBotApi):
             variants.append(self._create_variant_from_data(variant_dict))
         return variants
 
+    def create_variant(self, message: BotMessage, text: str) -> BotVariant:
+        """
+        Создание варианта
+        Args:
+            message: объект сообщения для которого создается вариант
+            text: текст создаваемого варианта
+
+        Returns:
+            объект созданного варианта
+        """
+        assert isinstance(message, BotMessage)
+        variant_obj = BotVariant(
+            text=text
+        )
+        response = requests.post(
+            self._suite_url + f'api/messages/{message.id}/variants/',
+            self._create_variant_dict_from_variant_obj(variant_obj),
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.created:
+            raise BotApiException('Ошибка при создании варианта: {0}'.format(response.text))
+        return self._create_variant_from_data(json.loads(response.text))
+
+    def change_variant(self, variant: BotVariant) -> None:
+        """
+        Изменение варианта.
+
+        Args:
+            variant (BotVariant): Вариант который необходимо изменить.
+        """
+        assert isinstance(variant, BotVariant)
+        response = requests.patch(
+            self._suite_url + f'api/variant/{variant.id}/',
+            self._create_variant_dict_from_variant_obj(variant),
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.ok:
+            raise BotApiException('Ошибка при изменении варианта: {0}'.format(response.text))
+
     def connect_variant(self, variant: BotVariant, message: BotMessage) -> None:
         """
         Связать вариант и сообщение, к которому перейдем при выборе этого варианта
@@ -252,52 +313,52 @@ class BotApiByRequests(IBotApi):
             raise BotApiException(
                 'Ошибка при связывании варианта с последующим сообщением: {0}'.format(response.text))
 
-    def set_bot_start_message(self, bot: BotDescription, start_message: BotMessage) -> None:
+    def delete_variant(self, variant: BotVariant) -> None:
         """
-        Установить сообщение с которого начнется работа с ботом
-        Args:
-            bot: объект бота
-            start_message: объект сообщения, которое будет установлено в качестве стартового
-        в качестве стартового
-        """
-        assert isinstance(bot, BotDescription)
-        assert isinstance(start_message, BotMessage)
-        response = requests.patch(
-            self._suite_url + f'api/bots/{bot.id}/',
-            {
-                'start_message': start_message.id
-            },
-            headers=self._get_headers()
-        )
-        if response.status_code != requests.status_codes.codes.ok:
-            raise BotApiException('Ошибка при установке стартового сообщения бота: {0}'.format(
-                response.text))
+        Удаление варианта
 
-    def delete_message(self, message: BotMessage):
-        assert isinstance(message, BotMessage)
-        print(f'delete message id {message.id}')
+        Args:
+            variant: вариант который необходимо удалить
+        """
+        assert isinstance(variant, BotVariant)
+        print(f'delete variant id {variant.id}')
         response = requests.delete(
-            self._suite_url + f'api/message/{message.id}/',
+            self._suite_url + f'api/variant/{variant.id}/',
             headers=self._get_headers()
         )
         print(f'delete response {response.status_code}')
         if response.status_code != requests.status_codes.codes.no_content:
-            raise BotApiException(f'Ошибка при удалении сообщения: {response.text}')
+            raise BotApiException(f'Ошибка при удалении варианта: {response.text}')
 
-    def change_message(self, message: BotMessage) -> None:
-        assert isinstance(message, BotMessage)
-        response = requests.patch(
-            self._suite_url + f'api/message/{message.id}/',
-            {
-                # todo: тут надо доделать, чтобы менялись все поля. И сделать цивилизованно
-                'coordinate_x': message.x,
-                'coordinate_y': message.y
-            },
+    def generate_bot(self, bot: BotDescription) -> None:
+        assert isinstance(bot, BotDescription)
+        response = requests.post(
+            url=self._suite_url + f'api/bots/{bot.id}/generate/',
             headers=self._get_headers()
         )
         if response.status_code != requests.status_codes.codes.ok:
             raise BotApiException(
-                'Ошибка при изменении сообщения: {0}'.format(response.text))
+                'Ошибка при генерации бота: {0}'.format(response.text))
+
+    def start_bot(self, bot: BotDescription) -> None:
+        assert isinstance(bot, BotDescription)
+        response = requests.post(
+            url=self._suite_url + f'api/bots/{bot.id}/start/',
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.ok:
+            raise BotApiException(
+                'Ошибка при старте бота: {0}'.format(response.text))
+
+    def stop_bot(self, bot: BotDescription) -> None:
+        assert isinstance(bot, BotDescription)
+        response = requests.post(
+            url=self._suite_url + f'api/bots/{bot.id}/stop/',
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.ok:
+            raise BotApiException(
+                'Ошибка при остановке бота: {0}'.format(response.text))
 
     def _get_headers(self) -> typing.Dict[str, str]:
         """
@@ -309,6 +370,16 @@ class BotApiByRequests(IBotApi):
         assert self._auth_token is not None
         return {
             'Authorization': 'Token ' + self._auth_token
+        }
+
+    def _create_bot_dict_from_obj(self, bot_obj: BotDescription) -> typing.Dict[str, typing.Any]:
+        assert isinstance(bot_obj, BotDescription)
+        return {
+            'id': bot_obj.id,
+            'name': bot_obj.bot_name,
+            'token': bot_obj.bot_token,
+            'description': bot_obj.bot_description,
+            'start_message': bot_obj.start_message_id
         }
 
     def _create_bot_obj_from_data(self, bot_dict: dict) -> BotDescription:
@@ -326,12 +397,31 @@ class BotApiByRequests(IBotApi):
         bot_message = BotMessage()
         bot_message.id = message_dict['id']
         bot_message.text = message_dict['text']
+        bot_message.keyboard_type = ButtonTypes(message_dict['keyboard_type'])
+
+        # todo: с этими полями надо разобраться, похоже,
+        #  там передается url путь, который надо сначала получить
         bot_message.photo = message_dict['photo']
         bot_message.video = message_dict['video']
         bot_message.file = message_dict['file']
+
         bot_message.x = message_dict['coordinate_x']
         bot_message.y = message_dict['coordinate_y']
         return bot_message
+
+    def _create_message_dict_from_message_obj(self, message: BotMessage) -> dict:
+        assert isinstance(message, BotMessage)
+        message_dict = {
+            'id': message.id,
+            'text': message.text,
+            'keyboard_type': message.keyboard_type.value,
+
+            # todo: добавить работу с фото, видео, файлом
+
+            'coordinate_x': message.x,
+            'coordinate_y': message.y
+        }
+        return message_dict
 
     def _create_variant_from_data(self, variant_dict: dict) -> BotVariant:
         """Создает объект класса MessageVariant из входящих данных"""
@@ -341,3 +431,12 @@ class BotApiByRequests(IBotApi):
         variant.current_message_id = variant_dict['current_message']
         variant.next_message_id = variant_dict['next_message']
         return variant
+
+    def _create_variant_dict_from_variant_obj(self, variant_obj: BotVariant) -> dict:
+        variant_dict = {
+            'id': variant_obj.id,
+            'text': variant_obj.text,
+            'current_message': variant_obj.current_message_id,
+            'next_message': variant_obj.next_message_id
+        }
+        return variant_dict

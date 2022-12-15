@@ -1,5 +1,6 @@
 import shutil
 from pathlib import Path
+import os
 
 import requests
 import rest_framework.request
@@ -16,15 +17,17 @@ from rest_framework.request import Request
 from rest_framework.decorators import action
 
 from cuttle_builder.bot_generator_db import BotGeneratorDb
-from .serializers import BotSerializer, MessageSerializer, VariantSerializer
+from .serializers import BotSerializer, MessageSerializer, MessageSerializerWithVariants, VariantSerializer
 from bots.models import Bot, Message, Variant
 from .mixins import RetrieveUpdateDestroyViewSet
 from .permissions import IsMessageOwnerOrForbidden, IsVariantOwnerOrForbidden, IsBotOwnerOrForbidden
 
+API_RESPONSE_WITH_VARIANTS = 'with_variants'
+
 
 class BotViewSet(viewsets.ModelViewSet):
     """
-    Отображение всех ботов пользователя и 
+    Отображение всех ботов пользователя и
     CRUD-функционал для экземпляра бота
 
     Есть такое описание:
@@ -170,12 +173,38 @@ class BotViewSet(viewsets.ModelViewSet):
         detail=True,
         url_path='generate'
     )
-    def generate_bot(self, request: rest_framework.request.Request, bot_id_str: str) -> HttpResponseBase:
+    def generate_bot(self, request: rest_framework.request.Request, bot_id_str: str) -> None:
         """
         Сгенерировать исходный код бота
         Args:
             request: данные запроса
             bot_id_str: идентификатор бота, исходник которого надо сгенерировать
+        """
+        bot_id = int(bot_id_str)
+        bot_django = get_object_or_404(Bot, id=bot_id)
+        # проверка прав, что пользователь может работать с данным ботом (владелец бота)
+        self.check_object_permissions(request, bot_django)
+        self._stop_bot_if_it_run(bot_id)
+        bot_api = BotApiByDjangoORM()
+        bot_obj = bot_api.get_bot_by_id(bot_django.id)
+        bot_dir = self._get_bot_dir(bot_django.id)
+        generator = BotGeneratorDb(bot_api, bot_obj, str(bot_dir))
+        generator.create_bot()
+
+        return Response({"generate_status": f"Бот № {bot_id} - успешно сгенерирован"},
+                        status=status.HTTP_200_OK)
+
+    @action(
+        methods=['GET'],
+        detail=True,
+        url_path='get_bot_zip'
+    )
+    def get_bot_zip(self, request: rest_framework.request.Request, bot_id_str: str) -> HttpResponseBase:
+        """
+        Получить zip архив с исходным кодом бота
+        Args:
+            request: данные запроса
+            bot_id_str: идентификатор бота, исходник которого надо получить
 
         Returns:
             http ответ - зип файл со сгенерированным ботом
@@ -184,20 +213,15 @@ class BotViewSet(viewsets.ModelViewSet):
         bot_django = get_object_or_404(Bot, id=bot_id)
         # проверка прав, что пользователь может работать с данным ботом (владелец бота)
         self.check_object_permissions(request, bot_django)
-        self._stop_bot_if_it_run(bot_id)
-        # подключаемся к api на локалхост, чтобы считать данные бота
-        # (хотя можно было и по другому сделать или переделать)
-        # bot_api = BotApiByRequests('http://127.0.0.1:8000/')
-        bot_api = BotApiByDjangoORM()
-        # bot_api.auth_by_token(request.auth.key)
-        bot_obj = bot_api.get_bot_by_id(bot_django.id)
         bot_dir = self._get_bot_dir(bot_django.id)
-        generator = BotGeneratorDb(bot_api, bot_obj, str(bot_dir))
-        generator.create_bot()
+
+        if not os.path.exists(bot_dir):
+            return Response(
+                {'error': f'Код для бота № {bot_id} ещё не сгенерирован'},
+                status=status.HTTP_204_NO_CONTENT)
 
         bot_zip_file_name = str(bot_dir) + '.zip'
         shutil.make_archive(str(bot_dir), 'zip', bot_dir)
-
         return FileResponse(open(bot_zip_file_name, 'rb'))
 
     @action(
@@ -229,22 +253,26 @@ class BotViewSet(viewsets.ModelViewSet):
 
 class MessageViewSet(viewsets.ModelViewSet):
     """
-    Отображение всех меседжей бота и 
+    Отображение всех меседжей бота и
     CRUD-функционал для экземпляра меседжа
     """
-    serializer_class = MessageSerializer
 
     def get_queryset(self):
         return Message.objects.filter(
             bot__owner=self.request.user,
             bot__id=self.kwargs.get('bot_id')
         )
-    
+
+    def get_serializer_class(self):
+        if self.request.query_params.get(API_RESPONSE_WITH_VARIANTS) == '1':
+            return MessageSerializerWithVariants
+        return MessageSerializer
+
     def perform_create(self, serializer: MessageSerializer) -> None:
         bot_id = self.kwargs.get('bot_id')
         bot = get_object_or_404(Bot, id=bot_id)
         serializer.save(bot=bot)
-    
+
     def create(self, request: Request, bot_id: int) -> Response:
         bot = get_object_or_404(Bot, id=bot_id)
         if bot.owner != request.user:
@@ -258,13 +286,18 @@ class MessageViewSet(viewsets.ModelViewSet):
 class OneMessageViewSet(RetrieveUpdateDestroyViewSet):
     """Чтение, обновление и удаление для экземпляра сообщения"""
     queryset = Message.objects.all()
-    serializer_class = MessageSerializer
+
+    def get_serializer_class(self):
+        if self.request.query_params.get(API_RESPONSE_WITH_VARIANTS) == '1':
+            return MessageSerializerWithVariants
+        return MessageSerializer
+
     permission_classes = (IsMessageOwnerOrForbidden,)
 
 
 class VariantViewSet(viewsets.ModelViewSet):
     """
-    Отображение всех вариантов сообщения и 
+    Отображение всех вариантов сообщения и
     CRUD-функционал для экземпляра варианта
     """
     serializer_class = VariantSerializer
@@ -274,12 +307,12 @@ class VariantViewSet(viewsets.ModelViewSet):
             current_message__bot__owner=self.request.user,
             current_message__id=self.kwargs.get('message_id')
         )
-    
+
     def perform_create(self, serializer: VariantSerializer) -> None:
         message_id = self.kwargs.get('message_id')
         message = get_object_or_404(Message, id=message_id)
         serializer.save(current_message=message)
-    
+
     def create(self, request: Request, message_id: int) -> Response:
         message = get_object_or_404(Message, id=message_id)
         if message.bot.owner != request.user:
@@ -295,4 +328,3 @@ class OneVariantViewSet(RetrieveUpdateDestroyViewSet):
     queryset = Variant.objects.all()
     serializer_class = VariantSerializer
     permission_classes = (IsVariantOwnerOrForbidden,)
-

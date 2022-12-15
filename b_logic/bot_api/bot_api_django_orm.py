@@ -1,8 +1,47 @@
-from typing import List
+from io import BufferedIOBase
+from typing import List, Optional
+from django.conf import settings
+from django.db.models.fields.files import ImageFieldFile
 
 from b_logic.bot_api.i_bot_api import IBotApi, BotApiException
-from b_logic.data_objects import BotDescription, BotMessage, BotVariant
+from b_logic.data_objects import BotDescription, BotMessage, BotVariant, ButtonTypes
 from bots.models import Bot, Message, Variant
+
+
+def get_full_path_to_django_image(base_dir: str, path_from_django: Optional[ImageFieldFile]) -> Optional[str]:
+    """Получение полного пути к медиа файлу
+
+    Args:
+        base_dir (str): Кореневая директория для медиа файлов
+        path_from_django (Optional[ImageFieldFile]): Данные из бд в Django формате
+
+    Returns:
+        Optional[str]: Полный путь к медиа файлу
+    """
+    assert isinstance(base_dir, str)
+    assert isinstance(path_from_django, Optional[ImageFieldFile])
+    if not path_from_django:
+        result = None
+    else:
+        result = base_dir + '/' + str(path_from_django)
+    return result
+
+
+def convert_image_to_bytes(path_to_image: Optional[str]) -> Optional[bytes]:
+    """Конвертация изображения в байт код
+
+    Args:
+        path_to_image (Optional[str]): Полный путь к файлу
+
+    Returns:
+        Optional[bytes]: Байт код изображения
+    """
+    assert isinstance(path_to_image, Optional[str])
+    if not path_to_image:
+        result = None
+    else:
+        result = open(path_to_image, "rb").read()
+    return result
 
 
 class BotApiByDjangoORM(IBotApi):
@@ -42,8 +81,8 @@ class BotApiByDjangoORM(IBotApi):
     def delete_bot(self, id: int) -> None:
         raise NotImplementedError('Метод не определен!')
 
-    def create_message(self, bot: BotDescription,
-                       text: str, x: int, y: int) -> BotMessage:
+    def set_bot_start_message(self, bot: BotDescription,
+                              start_message: BotMessage) -> None:
         raise NotImplementedError('Метод не определен!')
 
     def get_messages(self, bot: BotDescription) -> List[BotMessage]:
@@ -61,7 +100,14 @@ class BotApiByDjangoORM(IBotApi):
             messages_list.append(self._create_bot_message_from_data(message))
         return messages_list
 
-    def create_variant(self, message: BotMessage, text: str) -> BotVariant:
+    def create_message(self, bot: BotDescription,
+                       text: str, x: int, y: int) -> BotMessage:
+        raise NotImplementedError('Метод не определен!')
+
+    def change_message(self, message: BotMessage) -> None:
+        raise NotImplementedError('Метод не определен!')
+
+    def delete_message(self, message: BotMessage):
         raise NotImplementedError('Метод не определен!')
 
     def get_variants(self, message: BotMessage) -> List[BotVariant]:
@@ -79,19 +125,27 @@ class BotApiByDjangoORM(IBotApi):
             variants_list.append(self._create_variant_from_data(variant))
         return variants_list
 
+    def create_variant(self, message: BotMessage, text: str) -> BotVariant:
+        raise NotImplementedError('Метод не определен!')
+
+    def change_variant(self, variant: BotVariant) -> None:
+        raise NotImplementedError('Метод не определен!')
+
     def connect_variant(self, variant: BotVariant,
                         message: BotMessage) -> None:
         raise NotImplementedError('Метод не определен!')
 
-    def set_bot_start_message(self, bot: BotDescription,
-                              start_message: BotMessage) -> None:
+    def delete_variant(self, variant: BotVariant) -> None:
         raise NotImplementedError('Метод не определен!')
 
-    def delete_message(self, message: BotMessage):
-        raise NotImplementedError('Метод не определен!')
+    def generate_bot(self, bot: BotDescription) -> None:
+        raise NotImplementedError('generate bot is not implemented')
 
-    def change_message(self, message: BotMessage) -> None:
-        raise NotImplementedError('Метод не определен!')
+    def start_bot(self, bot: BotDescription) -> None:
+        raise NotImplementedError('is not implemented')
+
+    def stop_bot(self, bot: BotDescription) -> None:
+        raise NotImplementedError('is not implemented')
 
     def _create_bot_obj_from_data(self, bot_django: Bot) -> BotDescription:
         """Создает объект класса BotDescription из входящих данных"""
@@ -108,7 +162,10 @@ class BotApiByDjangoORM(IBotApi):
         bot_message = BotMessage()
         bot_message.id = message_django.id
         bot_message.text = message_django.text
-        bot_message.photo = message_django.photo
+        bot_message.keyboard_type = ButtonTypes(message_django.keyboard_type)
+        bot_message.photo = convert_image_to_bytes(
+            get_full_path_to_django_image(settings.MEDIA_ROOT, message_django.photo)
+        )
         bot_message.video = message_django.video
         bot_message.file = message_django.file
         bot_message.x = message_django.coordinate_x
@@ -121,8 +178,5 @@ class BotApiByDjangoORM(IBotApi):
         variant.id = variant_django.id
         variant.text = variant_django.text
         variant.current_message_id = variant_django.current_message.id
-        if variant_django.next_message:
-            variant.next_message_id = variant_django.next_message.id
-        else:
-            variant.next_message_id = None
+        variant.next_message_id = variant_django.next_message.id if variant_django.next_message else None
         return variant
