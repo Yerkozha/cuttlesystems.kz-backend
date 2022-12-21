@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import List
 
-from b_logic.data_objects import BotMessage, BotVariant
+from b_logic.data_objects import BotMessage, BotVariant, BotCommand
 from cuttle_builder.bot_generator import BotGenerator
 
 
@@ -42,6 +42,14 @@ class BotTestData:
             'video': None,
             'file': None
         },
+        {
+            'id': 1,
+            'text': 'Error message, press /restart',
+            'photo': None,
+            'video': None,
+            'file': None
+        }
+
     ]
 
     _VARIANTS_JSON = [
@@ -74,7 +82,23 @@ class BotTestData:
             'text': 'From 50 to 10',
             'current_id': 50,
             'next_id': 10
+        },
+        {
+            'text': 'Error to 10',
+            'current_id': 1,
+            'next_id': 10
         }
+    ]
+
+    _COMMANDS_JSON = [
+        {
+            'command': 'start',
+            'description': 'start bot',
+        },
+        {
+            'command': 'restart',
+            'description': 'restart bot',
+        },
     ]
 
     _START_MESSAGE_ID = 10
@@ -83,6 +107,14 @@ class BotTestData:
     def __init__(self):
         messages: List[BotMessage] = []
         variants: List[BotVariant] = []
+        commands: List[BotCommand] = []
+
+        for command in self._COMMANDS_JSON:
+            com = BotCommand()
+            com.command = command['command']
+            com.description = command['description']
+            commands.append(com)
+
         for message in self._MESSAGES_JSON:
             mes = BotMessage()
             mes.text = message['text']
@@ -98,9 +130,15 @@ class BotTestData:
 
         self._messages = messages
         self._variants = variants
+        self._commands = commands
+
     @property
     def start_message_id(self) -> int:
         return 10
+
+    @property
+    def error_message_id(self) -> int:
+        return 1
 
     @property
     def messages(self) -> List[BotMessage]:
@@ -109,6 +147,10 @@ class BotTestData:
     @property
     def variants(self) -> List[BotVariant]:
         return self._variants
+
+    @property
+    def commands(self) -> List[BotCommand]:
+        return self._commands
 
     @property
     def token(self) -> str:

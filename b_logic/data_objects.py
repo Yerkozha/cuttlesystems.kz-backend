@@ -3,6 +3,12 @@ from typing import Optional
 from enum import Enum
 
 
+@dataclass(slots=True)
+class HandlerInit:
+    handler_name: str
+    is_error_message: bool
+
+
 class ButtonTypes(Enum):
     INLINE = 'IKB'
     REPLY = 'RKB'
@@ -39,3 +45,11 @@ class BotVariant:
     text: Optional[str] = None
     current_message_id: Optional[int] = None
     next_message_id: Optional[int] = None
+
+
+@dataclass
+class BotCommand:
+    id: Optional[int] = None
+    bot_id: Optional[int] = None
+    command: Optional[str] = None
+    description: Optional[str] = None

@@ -4,7 +4,7 @@ from typing import List, Optional
 import requests
 
 from b_logic.bot_api.i_bot_api import IBotApi, BotApiException
-from b_logic.data_objects import BotDescription, BotMessage, BotVariant, ButtonTypes
+from b_logic.data_objects import BotCommand, BotDescription, BotMessage, BotVariant, ButtonTypes
 
 
 class BotApiByRequests(IBotApi):
@@ -162,6 +162,7 @@ class BotApiByRequests(IBotApi):
     def get_messages(self, bot: BotDescription) -> List[BotMessage]:
         """
         Получить все сообщения заданного бота
+
         Args:
             bot: бот, у которого нужно получить сообщения
 
@@ -330,6 +331,55 @@ class BotApiByRequests(IBotApi):
         if response.status_code != requests.status_codes.codes.no_content:
             raise BotApiException(f'Ошибка при удалении варианта: {response.text}')
 
+    def get_commands(self, bot: BotDescription) -> List[BotCommand]:
+        """
+        Получить все команды заданного бота
+
+        Args:
+            bot: бот, у которого нужно получить команды
+
+        Returns:
+            список команд бота
+        """
+        assert isinstance(bot, BotDescription)
+        response = requests.get(
+            self._suite_url + f'api/bots/{bot.id}/commands/',
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.ok:
+            raise BotApiException(f'Ошибка при получении команд бота {response.text}')
+        commands_list: List[BotCommand] = []
+        for command_dict in json.loads(response.text):
+            commands_list.append(self._create_command_from_data(command_dict))
+        return commands_list
+
+    def create_command(self, bot: BotDescription, command: str,
+                       description: str) -> BotCommand:
+        """
+        Создать команду
+
+        Args:
+            bot: объект бота, для которого создается сообщение
+            command: тест сообщения
+            description: краткое описание команды
+
+        Returns:
+            Объект созданной команды
+        """
+        assert isinstance(bot, BotDescription)
+        command_obj = BotCommand(
+            command=command,
+            description=description
+        )
+        response = requests.post(
+            url=self._suite_url + f'api/bots/{bot.id}/commands/',
+            data=self._create_command_dict_from_command_obj(command_obj),
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.created:
+            raise BotApiException('Ошибка при создании команды: {0}'.format(response.text))
+        return self._create_command_from_data(json.loads(response.text))
+
     def generate_bot(self, bot: BotDescription) -> None:
         assert isinstance(bot, BotDescription)
         response = requests.post(
@@ -433,6 +483,7 @@ class BotApiByRequests(IBotApi):
         return variant
 
     def _create_variant_dict_from_variant_obj(self, variant_obj: BotVariant) -> dict:
+        """Создание payload(body) для api запроса"""
         variant_dict = {
             'id': variant_obj.id,
             'text': variant_obj.text,
@@ -440,3 +491,22 @@ class BotApiByRequests(IBotApi):
             'next_message': variant_obj.next_message_id
         }
         return variant_dict
+
+    def _create_command_from_data(self, command_dict: dict) -> BotCommand:
+        """Создает объект класса BotCommand из входящих данных"""
+        command = BotCommand()
+        command.id = command_dict['id']
+        command.bot_id = command_dict['bot']
+        command.command = command_dict['command']
+        command.description = command_dict['description']
+        return command
+
+    def _create_command_dict_from_command_obj(self, command_obj: BotCommand) -> dict:
+        """Создание payload(body) для api запроса"""
+        command_dict = {
+            'id': command_obj.id,
+            'bot': command_obj.bot_id,
+            'command': command_obj.command,
+            'description': command_obj.description
+        }
+        return command_dict
