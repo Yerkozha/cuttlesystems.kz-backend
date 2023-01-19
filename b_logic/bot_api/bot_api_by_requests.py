@@ -2,9 +2,28 @@ import json
 import typing
 from typing import List, Optional
 import requests
+import urllib.request
 
 from b_logic.bot_api.i_bot_api import IBotApi, BotApiException
-from b_logic.data_objects import BotCommand, BotDescription, BotMessage, BotVariant, ButtonTypes
+from b_logic.data_objects import BotCommand, BotDescription, BotMessage, BotVariant, ButtonTypesEnum, BotLogs, \
+    MessageTypeEnum
+
+
+def convert_image_from_api_response_to_bytes(url: Optional[str]) -> Optional[bytes]:
+    """
+    Конвертирует изображение по его url в байт код
+
+    Args:
+        url (Optional[str]): Url изображения
+
+    Returns:
+        Optional[bytes]: Байт код изображения
+    """
+    result = None
+    if url is not None:
+        with urllib.request.urlopen(url) as file:
+            result = file.read()
+    return result
 
 
 class BotApiByRequests(IBotApi):
@@ -21,6 +40,29 @@ class BotApiByRequests(IBotApi):
         """Устанавливает suite_url: корневой URL для API запросов"""
         assert isinstance(suite_url, str)
         self._suite_url = suite_url
+
+    def sign_up(self, username: str, email: str, password: str) -> None:
+        """
+        Регистрация нового пользователя.
+
+        Args:
+            username: Имя
+            email: Электронная почта
+            password: Пароль
+        """
+        try:
+            response = requests.post(
+                self._suite_url + 'api/users/',
+                {
+                    'username': username,
+                    'email': email,
+                    'password': password
+                }
+            )
+            if response.status_code != requests.status_codes.codes.created:
+                raise BotApiException('Sign up error {0}'.format(response.text))
+        except requests.exceptions.ConnectionError as connection_error:
+            raise BotApiException(f'Connection error: {connection_error}')
 
     def authentication(self, username: str, password: str) -> None:
         """
@@ -123,7 +165,7 @@ class BotApiByRequests(IBotApi):
             headers=self._get_headers()
         )
         if response.status_code != requests.status_codes.codes.ok:
-            raise BotApiException('Ошибка при изменении бота')
+            raise BotApiException(f'Ошибка при изменении бота: {response.text}')
 
     def delete_bot(self, id: int) -> None:
         """
@@ -159,6 +201,28 @@ class BotApiByRequests(IBotApi):
             raise BotApiException('Ошибка при установке стартового сообщения бота: {0}'.format(
                 response.text))
 
+    def set_bot_error_message(self, bot: BotDescription, error_message: BotMessage) -> None:
+        """
+        Установить ошибочное сообщение для бота.
+
+        Args:
+            bot: объект бота
+            error_message: объект сообщения, которое будет установлено в
+            качестве ошибочного
+        """
+        assert isinstance(bot, BotDescription)
+        assert isinstance(error_message, BotMessage)
+        response = requests.patch(
+            self._suite_url + f'api/bots/{bot.id}/',
+            {
+                'error_message': error_message.id
+            },
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.ok:
+            raise BotApiException('Ошибка при установке ошибочного сообщения бота: {0}'.format(
+                response.text))
+
     def get_messages(self, bot: BotDescription) -> List[BotMessage]:
         """
         Получить все сообщения заданного бота
@@ -182,7 +246,9 @@ class BotApiByRequests(IBotApi):
         return messages_list
 
     def create_message(self, bot: BotDescription, text: str,
-                       keyboard_type: ButtonTypes, x: int, y: int) -> BotMessage:
+                       keyboard_type: ButtonTypesEnum, x: int, y: int,
+                       photo: Optional[bytes] = None,
+                       photo_filename: Optional[str] = None) -> BotMessage:
         """
         Создать сообщение
         Args:
@@ -198,13 +264,16 @@ class BotApiByRequests(IBotApi):
         message = BotMessage(
             text=text,
             keyboard_type=keyboard_type,
+            photo=photo,
+            photo_filename=photo_filename,
             x=x,
             y=y
         )
         response = requests.post(
             url=self._suite_url + f'api/bots/{bot.id}/messages/',
             data=self._create_message_dict_from_message_obj(message),
-            headers=self._get_headers()
+            headers=self._get_headers(),
+            files=self._create_upload_files_message_dict_from_message_obj(message)
         )
         if response.status_code != requests.status_codes.codes.created:
             raise BotApiException('Ошибка при создании сообщения: {0}'.format(response.text))
@@ -213,9 +282,10 @@ class BotApiByRequests(IBotApi):
     def change_message(self, message: BotMessage) -> None:
         assert isinstance(message, BotMessage)
         response = requests.patch(
-            self._suite_url + f'api/message/{message.id}/',
-            self._create_message_dict_from_message_obj(message),
-            headers=self._get_headers()
+            url=self._suite_url + f'api/message/{message.id}/',
+            data=self._create_message_dict_from_message_obj(message),
+            headers=self._get_headers(),
+            files=self._create_upload_files_message_dict_from_message_obj(message)
         )
         if response.status_code != requests.status_codes.codes.ok:
             raise BotApiException(
@@ -410,6 +480,31 @@ class BotApiByRequests(IBotApi):
             raise BotApiException(
                 'Ошибка при остановке бота: {0}'.format(response.text))
 
+    def get_running_bots_info(self) -> List[int]:
+        response = requests.get(
+            url=self._suite_url + f'api/bots/get_all_starting_bots/',
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.ok:
+            raise BotApiException(
+                'Error occurred when getting running bots info: {0}'.format(response.text))
+
+        return json.loads(response.text)
+
+    def get_bot_logs(self, bot: BotDescription) -> BotLogs:
+        assert isinstance(bot, BotDescription)
+        response = requests.get(
+            self._suite_url + f'api/bots/{bot.id}/logs/',
+            headers=self._get_headers()
+        )
+        if response.status_code != requests.status_codes.codes.ok:
+            raise BotApiException(f'Error when receiving bot logs: {response.text}')
+        response_dict = json.loads(response.text)
+        logs = BotLogs()
+        logs.stderr_lines = response_dict['stderr']
+        logs.stdout_lines = response_dict['stdout']
+        return logs
+
     def _get_headers(self) -> typing.Dict[str, str]:
         """
         Получить словарь заголовков, которые добавляются к запросам.
@@ -429,7 +524,8 @@ class BotApiByRequests(IBotApi):
             'name': bot_obj.bot_name,
             'token': bot_obj.bot_token,
             'description': bot_obj.bot_description,
-            'start_message': bot_obj.start_message_id
+            'start_message': bot_obj.start_message_id,
+            'error_message': bot_obj.error_message_id
         }
 
     def _create_bot_obj_from_data(self, bot_dict: dict) -> BotDescription:
@@ -440,6 +536,7 @@ class BotApiByRequests(IBotApi):
         bot_description.bot_token = bot_dict['token']
         bot_description.bot_description = bot_dict['description']
         bot_description.start_message_id = bot_dict['start_message']
+        bot_description.error_message_id = bot_dict['error_message']
         return bot_description
 
     def _create_bot_message_from_data(self, message_dict: dict) -> BotMessage:
@@ -447,16 +544,20 @@ class BotApiByRequests(IBotApi):
         bot_message = BotMessage()
         bot_message.id = message_dict['id']
         bot_message.text = message_dict['text']
-        bot_message.keyboard_type = ButtonTypes(message_dict['keyboard_type'])
+        bot_message.keyboard_type = ButtonTypesEnum(message_dict['keyboard_type'])
 
         # todo: с этими полями надо разобраться, похоже,
         #  там передается url путь, который надо сначала получить
-        bot_message.photo = message_dict['photo']
+        bot_message.photo = convert_image_from_api_response_to_bytes(message_dict['photo'])
         bot_message.video = message_dict['video']
         bot_message.file = message_dict['file']
 
         bot_message.x = message_dict['coordinate_x']
         bot_message.y = message_dict['coordinate_y']
+
+        bot_message.message_type = MessageTypeEnum(message_dict['message_type'])
+        bot_message.next_message_id = message_dict['next_message']
+        bot_message.variable = message_dict['variable']
         return bot_message
 
     def _create_message_dict_from_message_obj(self, message: BotMessage) -> dict:
@@ -465,13 +566,22 @@ class BotApiByRequests(IBotApi):
             'id': message.id,
             'text': message.text,
             'keyboard_type': message.keyboard_type.value,
-
-            # todo: добавить работу с фото, видео, файлом
-
             'coordinate_x': message.x,
-            'coordinate_y': message.y
+            'coordinate_y': message.y,
+            'message_type': message.message_type.value,
+            'next_message': message.next_message_id,
+            'variable': message.variable
         }
         return message_dict
+
+    def _create_upload_files_message_dict_from_message_obj(self, message: BotMessage) -> dict:
+        assert isinstance(message, BotMessage)
+        upload_files_message_dict = {
+            'photo': (message.photo_filename, message.photo),
+            # 'video': (),
+            # 'file': ()
+        }
+        return upload_files_message_dict
 
     def _create_variant_from_data(self, variant_dict: dict) -> BotVariant:
         """Создает объект класса MessageVariant из входящих данных"""

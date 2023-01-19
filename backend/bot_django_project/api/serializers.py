@@ -4,7 +4,6 @@ from rest_framework.validators import UniqueTogetherValidator
 
 from bots.models import Bot, Message, Variant, Command
 
-
 User = get_user_model()
 
 
@@ -23,7 +22,8 @@ class BotSerializer(serializers.ModelSerializer):
             'token',
             'description',
             'owner',
-            'start_message'
+            'start_message',
+            'error_message'
         )
 
     validators = [
@@ -48,6 +48,9 @@ class MessageSerializer(serializers.ModelSerializer):
             'bot',
             'coordinate_x',
             'coordinate_y',
+            'message_type',
+            'next_message',
+            'variable'
         )
         read_only_fields = ('bot',)
 
@@ -71,7 +74,7 @@ class VariantSerializer(serializers.ModelSerializer):
             UniqueTogetherValidator(
                 queryset=Variant.objects.all(),
                 fields=('text', 'current_message'),
-                message='Такой вариант для сообщения уже существует.',
+                message='This variant is alredy exists.',
             )
         ]
 

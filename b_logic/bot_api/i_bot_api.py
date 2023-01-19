@@ -1,7 +1,7 @@
 from typing import List
 from abc import abstractmethod, ABC
 
-from b_logic.data_objects import BotDescription, BotMessage, BotVariant, ButtonTypes, BotCommand
+from b_logic.data_objects import BotDescription, BotMessage, BotVariant, ButtonTypesEnum, BotCommand, BotLogs
 
 
 class BotApiException(Exception):
@@ -16,6 +16,18 @@ class IBotApi(ABC):
         Устанавливает suite_url: корневой URL для API запросов
         Args:
             suite_url: URL запроса
+        """
+        pass
+
+    @abstractmethod
+    def sign_up(self, username: str, email: str, password: str) -> None:
+        """
+        Регистрация нового пользователя.
+
+        Args:
+            username: Имя
+            email: Электронная почта
+            password: Пароль
         """
         pass
 
@@ -80,9 +92,7 @@ class IBotApi(ABC):
         """
         Изменить бота
         Args:
-            bot_name: название бота
-            bot_token: токен бота
-            bot_description: описание бота
+            bot: описание бота
         """
         pass
 
@@ -108,6 +118,19 @@ class IBotApi(ABC):
         pass
 
     @abstractmethod
+    def set_bot_error_message(self, bot: BotDescription,
+                              error_message: BotMessage) -> None:
+        """
+        Установить ошибочное сообщение для бота.
+
+        Args:
+            bot: объект бота
+            error_message: объект сообщения, которое будет установлено в
+            качестве ошибочного
+        """
+        pass
+
+    @abstractmethod
     def get_messages(self, bot: BotDescription) -> List[BotMessage]:
         """
         Получить все сообщения заданного бота
@@ -121,12 +144,13 @@ class IBotApi(ABC):
 
     @abstractmethod
     def create_message(self, bot: BotDescription, text: str,
-                       keyboard_type: ButtonTypes, x: int, y: int) -> BotMessage:
+                       keyboard_type: ButtonTypesEnum, x: int, y: int) -> BotMessage:
         """
         Создать сообщение
         Args:
             bot: объект бота, для которого создается сообщение
             text: тест сообщения
+            keyboard_type: тип клавиатуры (inline or reply)
             x: координата по x
             y: координата по y
 
@@ -261,9 +285,30 @@ class IBotApi(ABC):
     @abstractmethod
     def stop_bot(self, bot: BotDescription) -> None:
         """
-        Остановка запущеного бота.
+        Остановка запущенного бота.
 
         Args:
             bot (BotDescription): Бот которого необходимо остановить.
+        """
+        pass
+
+    @abstractmethod
+    def get_running_bots_info(self) -> List[int]:
+        """
+        Получает данные о запущенных ботах пользователя.
+
+        Returns: Список id запущенных ботов.
+        """
+        pass
+
+    @abstractmethod
+    def get_bot_logs(self, bot: BotDescription) -> BotLogs:
+        """
+        Получить логи бота (stdout, stderr)
+        Args:
+            bot: бот у которого получаем логи
+
+        Returns:
+            объект с логами бота
         """
         pass

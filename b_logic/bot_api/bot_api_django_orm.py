@@ -1,10 +1,12 @@
-from io import BufferedIOBase
 from typing import List, Optional
-from django.conf import settings
+from io import BufferedIOBase
+
 from django.db.models.fields.files import ImageFieldFile
+from django.conf import settings
 
 from b_logic.bot_api.i_bot_api import IBotApi, BotApiException
-from b_logic.data_objects import BotCommand, BotDescription, BotMessage, BotVariant, ButtonTypes
+from b_logic.data_objects import BotCommand, BotDescription, BotMessage, BotVariant, ButtonTypesEnum, BotLogs, \
+    MessageTypeEnum
 from bots.models import Bot, Message, Variant, Command
 
 
@@ -12,7 +14,7 @@ def get_full_path_to_django_image(base_dir: str, path_from_django: Optional[Imag
     """Получение полного пути к медиа файлу
 
     Args:
-        base_dir (str): Кореневая директория для медиа файлов
+        base_dir (str): Корневая директория для медиа файлов
         path_from_django (Optional[ImageFieldFile]): Данные из бд в Django формате
 
     Returns:
@@ -46,6 +48,9 @@ def convert_image_to_bytes(path_to_image: Optional[str]) -> Optional[bytes]:
 
 class BotApiByDjangoORM(IBotApi):
     def set_suite(self, suite_url: str):
+        raise NotImplementedError('Метод не определен!')
+
+    def sign_up(self, username: str, email: str, password: str):
         raise NotImplementedError('Метод не определен!')
 
     def authentication(self, username: str, password: str) -> None:
@@ -85,6 +90,10 @@ class BotApiByDjangoORM(IBotApi):
                               start_message: BotMessage) -> None:
         raise NotImplementedError('Метод не определен!')
 
+    def set_bot_error_message(self, bot: BotDescription,
+                              error_message: BotMessage) -> None:
+        raise NotImplementedError('Метод не определен!')
+
     def get_messages(self, bot: BotDescription) -> List[BotMessage]:
         """
         Получить все сообщения заданного бота
@@ -100,8 +109,8 @@ class BotApiByDjangoORM(IBotApi):
             messages_list.append(self._create_bot_message_from_data(message))
         return messages_list
 
-    def create_message(self, bot: BotDescription,
-                       text: str, x: int, y: int) -> BotMessage:
+    def create_message(self, bot: BotDescription, text: str,
+                       keyboard_type: ButtonTypesEnum, x: int, y: int) -> BotMessage:
         raise NotImplementedError('Метод не определен!')
 
     def change_message(self, message: BotMessage) -> None:
@@ -166,6 +175,12 @@ class BotApiByDjangoORM(IBotApi):
     def stop_bot(self, bot: BotDescription) -> None:
         raise NotImplementedError('is not implemented')
 
+    def get_running_bots_info(self) -> List[int]:
+        raise NotImplementedError('is not implemented')
+
+    def get_bot_logs(self, bot: BotDescription) -> BotLogs:
+        raise NotImplementedError('is not implemented')
+
     def _create_bot_obj_from_data(self, bot_django: Bot) -> BotDescription:
         """Создает объект класса BotDescription из входящих данных"""
         bot_description = BotDescription()
@@ -174,6 +189,7 @@ class BotApiByDjangoORM(IBotApi):
         bot_description.bot_token = bot_django.token
         bot_description.bot_description = bot_django.description
         bot_description.start_message_id = bot_django.start_message.id if bot_django.start_message is not None else None
+        bot_description.error_message_id = bot_django.error_message.id if bot_django.error_message is not None else None
         return bot_description
 
     def _create_bot_message_from_data(self, message_django: Message) -> BotMessage:
@@ -181,14 +197,24 @@ class BotApiByDjangoORM(IBotApi):
         bot_message = BotMessage()
         bot_message.id = message_django.id
         bot_message.text = message_django.text
-        bot_message.keyboard_type = ButtonTypes(message_django.keyboard_type)
+        bot_message.keyboard_type = ButtonTypesEnum(message_django.keyboard_type)
         bot_message.photo = convert_image_to_bytes(
             get_full_path_to_django_image(settings.MEDIA_ROOT, message_django.photo)
         )
+        # todo: добавить фото файлнэйм
         bot_message.video = message_django.video
         bot_message.file = message_django.file
         bot_message.x = message_django.coordinate_x
         bot_message.y = message_django.coordinate_y
+        bot_message.message_type = MessageTypeEnum(message_django.message_type)
+
+        bot_message.next_message_id = (
+            message_django.next_message.id
+            if message_django.next_message is not None
+            else None
+        )
+
+        bot_message.variable = message_django.variable
         return bot_message
 
     def _create_variant_from_data(self, variant_django: Variant) -> BotVariant:
@@ -197,7 +223,11 @@ class BotApiByDjangoORM(IBotApi):
         variant.id = variant_django.id
         variant.text = variant_django.text
         variant.current_message_id = variant_django.current_message.id
-        variant.next_message_id = variant_django.next_message.id if variant_django.next_message else None
+        variant.next_message_id = (
+            variant_django.next_message.id
+            if variant_django.next_message is not None
+            else None
+        )
         return variant
 
     def _create_command_from_data(self, command_django: Command) -> BotCommand:

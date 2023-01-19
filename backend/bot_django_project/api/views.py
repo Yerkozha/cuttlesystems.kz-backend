@@ -12,18 +12,24 @@ from django.shortcuts import get_object_or_404
 from b_logic.bot_api.bot_api_django_orm import BotApiByDjangoORM
 from b_logic.bot_processes_manager import BotProcessesManagerSingle
 from b_logic.bot_runner import BotRunner
+from bot_constructor.log_configs import logger_django
 from bot_constructor.settings import BOTS_DIR
 from rest_framework.request import Request
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 
+from .utils import check_variant_fields_request
 from .utils import check_bot_token_when_generate_bot
+from cuttle_builder.create_dir_if_doesnt_exist import create_dir_if_it_doesnt_exist
 from cuttle_builder.bot_generator_db import BotGeneratorDb
+from cuttle_builder.exceptions.bot_gen_exceptions import BotGeneratorException
 from .serializers import (BotSerializer, MessageSerializer, MessageSerializerWithVariants,
                           VariantSerializer, CommandSerializer)
 from bots.models import Bot, Message, Variant, Command
 from .mixins import RetrieveUpdateDestroyViewSet
 from .permissions import (IsMessageOwnerOrForbidden, IsVariantOwnerOrForbidden, IsBotOwnerOrForbidden,
                           IsCommandOwnerOrForbidden, check_is_bot_owner_or_permission_denied)
+from .exceptions import ErrorsFromBotGenerator
 
 API_RESPONSE_WITH_VARIANTS = 'with_variants'
 
@@ -73,7 +79,7 @@ class BotViewSet(viewsets.ModelViewSet):
         # если оказалось, что этого бота уже запускали, то остановим его
         already_started_bot = bot_process_manager.get_process_info(bot_id)
         if already_started_bot is not None:
-            runner.stop(already_started_bot.process_id)
+            already_started_bot.bot_runner.stop()
             bot_process_manager.remove(bot_id)
 
     @action(
@@ -104,7 +110,7 @@ class BotViewSet(viewsets.ModelViewSet):
         process_id = runner.start()
         if process_id is not None:
             bot_process_manager = BotProcessesManagerSingle()
-            bot_process_manager.register(bot_id, process_id)
+            bot_process_manager.register(bot_id, runner)
             result = JsonResponse(
                 {
                     'result': 'Start bot ok',
@@ -113,6 +119,7 @@ class BotViewSet(viewsets.ModelViewSet):
                 },
                 status=requests.codes.ok
             )
+            logger_django.info_logging(f'Bot {bot_id} started. Process id: {process_id}')
         else:
             result = JsonResponse(
                 {
@@ -120,7 +127,7 @@ class BotViewSet(viewsets.ModelViewSet):
                 },
                 status=requests.codes.method_not_allowed
             )
-
+            logger_django.error_logging('Bot start error')
         return result
 
     @action(
@@ -145,13 +152,13 @@ class BotViewSet(viewsets.ModelViewSet):
         bot_processes_manager = BotProcessesManagerSingle()
         bot_process = bot_processes_manager.get_process_info(bot_id_int)
         if bot_process is not None:
-            if runner.stop(bot_process.process_id):
+            if bot_process.bot_runner.stop():
                 bot_processes_manager.remove(bot_id_int)
                 result = JsonResponse(
                     {
                         'result': 'Bot stopped is ok',
                         'bot_id': bot_id_int,
-                        'process_id': bot_process.process_id
+                        'process_id': bot_process.bot_runner.process_id
                     },
                     status=requests.codes.ok
                 )
@@ -176,7 +183,7 @@ class BotViewSet(viewsets.ModelViewSet):
         detail=True,
         url_path='generate'
     )
-    def generate_bot(self, request: rest_framework.request.Request, bot_id_str: str) -> None:
+    def generate_bot(self, request: rest_framework.request.Request, bot_id_str: str) -> Response:
         """
         Сгенерировать исходный код бота
         Args:
@@ -193,7 +200,10 @@ class BotViewSet(viewsets.ModelViewSet):
         bot_obj = bot_api.get_bot_by_id(bot_django.id)
         bot_dir = self._get_bot_dir(bot_django.id)
         generator = BotGeneratorDb(bot_api, bot_obj, str(bot_dir))
-        generator.create_bot()
+        try:
+            generator.create_bot()
+        except BotGeneratorException as exception:
+            raise ErrorsFromBotGenerator(detail=exception)
 
         return Response({"generate_status": f"Бот № {bot_id} - успешно сгенерирован"},
                         status=status.HTTP_200_OK)
@@ -250,9 +260,65 @@ class BotViewSet(viewsets.ModelViewSet):
         bot_info = bot_processes_manager.get_process_info(bot_id)
         if bot_info is not None:
             result_dict['is_started'] = True
-            result_dict['process_id'] = bot_info.process_id
+            result_dict['process_id'] = bot_info.bot_runner.process_id
             result_dict['bot_id'] = bot_info.bot_id
         return JsonResponse(result_dict, status=requests.codes.ok)
+
+    @action(
+        methods=['GET'],
+        detail=True,
+        url_path='logs'
+    )
+    def logs(self, request: rest_framework.request.Request, bot_id_str: str) -> JsonResponse:
+        bot_id = int(bot_id_str)
+        bot_django = get_object_or_404(Bot, id=bot_id)
+
+        # проверка прав, что пользователь может работать с данным ботом (владелец бота)
+        self.check_object_permissions(request, bot_django)
+
+        stdout_log = []
+        stderr_log = []
+        bot_processes_manager = BotProcessesManagerSingle()
+        bot_info = bot_processes_manager.get_process_info(bot_id)
+        if bot_info is not None:
+            stderr_log = bot_info.bot_runner.get_bot_stderr()
+            stdout_log = bot_info.bot_runner.get_bot_stdout()
+
+        result_dict = {
+            'bot_id': bot_id,
+            'stderr': stderr_log,
+            'stdout': stdout_log
+        }
+        return JsonResponse(result_dict, status=requests.codes.ok)
+
+    @action(
+        methods=['GET'],
+        detail=False,
+        url_path='get_all_starting_bots'
+    )
+    def get_all_starting_bots(self, request: rest_framework.request.Request) -> Response:
+        """
+        Получает данные о запущенных ботах пользователя, который делает запрос.
+        запрос: {your server address}/api/bots/get_all_starting_bots/
+
+        Args:
+            request: объект запроса.
+
+        Returns:
+            Апи ответ содержащий список id, запущенных ботов.
+        """
+        user_bots_from_db = Bot.objects.filter(owner=request.user)
+        user_bots_id_list = [bot.id for bot in user_bots_from_db]
+
+        bot_processes_manager = BotProcessesManagerSingle()
+        all_running_bots = bot_processes_manager.get_all_processes_info()
+        all_running_bots_id_list = [bot.bot_id for bot in all_running_bots.values()]
+
+        all_running_user_bots = set(user_bots_id_list).intersection(set(all_running_bots_id_list))
+        return Response(
+            data=list(all_running_user_bots),
+            status=requests.codes.ok
+        )
 
 
 class MessageViewSet(viewsets.ModelViewSet):
@@ -305,16 +371,20 @@ class VariantViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Variant.objects.filter(
             current_message__bot__owner=self.request.user,
-            current_message__id=self.kwargs.get('message_id')
+            current_message__id=self.kwargs['message_id']
         )
 
     def perform_create(self, serializer: VariantSerializer) -> None:
-        message_id = self.kwargs.get('message_id')
+        message_id = self.kwargs['message_id']
         message = get_object_or_404(Message, id=message_id)
         serializer.save(current_message=message)
 
     def create(self, request: Request, message_id: int) -> Response:
         message = get_object_or_404(Message, id=message_id)
+        check_variant_fields_request(request)
+        if Variant.objects.filter(text=request.data['text'],
+                                  current_message=message).exists():
+            raise ValidationError(detail={"non_field_errors": "This variant is alredy exists."}, code=400)
         check_is_bot_owner_or_permission_denied(request, message.bot)
         return super().create(request, message_id)
 
@@ -324,6 +394,10 @@ class OneVariantViewSet(RetrieveUpdateDestroyViewSet):
     queryset = Variant.objects.all()
     serializer_class = VariantSerializer
     permission_classes = (IsVariantOwnerOrForbidden,)
+
+    def update(self, request: Request, pk: str, partial: bool):
+        check_variant_fields_request(request)
+        return super().update(request, pk=pk, partial=partial)
 
 
 class CommandViewSet(viewsets.ModelViewSet):
@@ -336,10 +410,10 @@ class CommandViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return Command.objects.filter(
             bot__owner=self.request.user,
-            bot__id=self.kwargs.get('bot_id'))
+            bot__id=self.kwargs['bot_id'])
 
     def perform_create(self, serializer: CommandSerializer) -> None:
-        bot_id = self.kwargs.get('bot_id')
+        bot_id = self.kwargs['bot_id']
         bot = get_object_or_404(Bot, id=bot_id)
         serializer.save(bot=bot)
 

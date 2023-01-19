@@ -1,6 +1,10 @@
 from django.contrib import admin
 
+from utils.read_git_info_file import read_info_from_file_about_commit
 from .models import Bot, Message, Variant, Command
+
+admin.site.site_header = read_info_from_file_about_commit()
+admin.site.index_title = 'Bot constructor'
 
 
 class BotAdmin(admin.ModelAdmin):
@@ -9,7 +13,7 @@ class BotAdmin(admin.ModelAdmin):
 
 
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ['id', 'text', 'keyboard_type', 'bot']
+    list_display = ['id', 'text', 'keyboard_type', 'bot', 'message_type', 'next_message', 'variable']
     list_editable = ['keyboard_type']
     list_filter = ('bot',)
 

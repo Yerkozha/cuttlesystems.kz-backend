@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import List
 
-from b_logic.data_objects import BotMessage, BotVariant, BotCommand
+from b_logic.data_objects import BotMessage, BotVariant, BotCommand, BotDescription
 from cuttle_builder.bot_generator import BotGenerator
 
 
@@ -94,11 +94,7 @@ class BotTestData:
         {
             'command': 'start',
             'description': 'start bot',
-        },
-        {
-            'command': 'restart',
-            'description': 'restart bot',
-        },
+        }
     ]
 
     _START_MESSAGE_ID = 10
@@ -108,6 +104,11 @@ class BotTestData:
         messages: List[BotMessage] = []
         variants: List[BotVariant] = []
         commands: List[BotCommand] = []
+
+        bot = BotDescription()
+        bot.id = 12345
+        bot.bot_token = self._TOKEN
+        bot.start_message_id = self._START_MESSAGE_ID
 
         for command in self._COMMANDS_JSON:
             com = BotCommand()
@@ -131,10 +132,11 @@ class BotTestData:
         self._messages = messages
         self._variants = variants
         self._commands = commands
+        self._bot = bot
 
     @property
-    def start_message_id(self) -> int:
-        return 10
+    def bot(self) -> BotDescription:
+        return self._bot
 
     @property
     def error_message_id(self) -> int:
@@ -151,10 +153,6 @@ class BotTestData:
     @property
     def commands(self) -> List[BotCommand]:
         return self._commands
-
-    @property
-    def token(self) -> str:
-        return self._TOKEN
 
     @property
     def bot_directory(self) -> str:

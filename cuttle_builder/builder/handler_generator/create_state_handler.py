@@ -4,6 +4,7 @@ from typing import Optional
 
 
 def prev_state_code_line(prev_state: Optional[str]) -> str:
+    assert isinstance(prev_state, Optional[str])
     result = ''
     if prev_state == '*':
         result = 'state=\'*\''
@@ -14,7 +15,7 @@ def prev_state_code_line(prev_state: Optional[str]) -> str:
 
 def create_state_message_handler(imports: str, command: str, prev_state: Optional[str], text_to_handle: Optional[str],
                                  state_to_set_name: Optional[str], text_of_answer: str, image_answer: Optional[str],
-                                 kb: str) -> str:
+                                 kb: Optional[str]) -> str:
     """Подготовка данных для генерации кода меседж хэндлера
 
     Args:
@@ -30,17 +31,24 @@ def create_state_message_handler(imports: str, command: str, prev_state: Optiona
     Returns:
         str: Сгенерированный код
     """
-
+    assert isinstance(imports, str)
+    assert isinstance(command, str)
+    assert isinstance(prev_state, Optional[str])
+    assert isinstance(text_to_handle, Optional[str])
+    assert isinstance(state_to_set_name, Optional[str])
+    assert isinstance(text_of_answer, str)
+    assert isinstance(image_answer, Optional[str])
+    assert isinstance(kb, Optional[str])
     handler_sample_name = 'message_handler_sample.txt'
     list_of_handler_params = [
         command,
-        'lambda message: message.text == \'{0}\''.format(text_to_handle) if text_to_handle else '',
+        'lambda message: message.text == {0}'.format(repr(text_to_handle)) if text_to_handle else '',
         prev_state_code_line(prev_state)
     ]
     handler_params = ', '.join(element for element in list_of_handler_params if element)
     state_to_set_content = 'await States.{state_name}.set()'.format(state_name=state_to_set_name) if state_to_set_name else ''
     keyboard_if_exists = f', reply_markup={kb}' if kb else ""
-    answer_content = f'await message.answer(text=\'{text_of_answer}\'{keyboard_if_exists})'
+    answer_content = f'await message.answer(text={repr(text_of_answer)}{keyboard_if_exists})'
     if image_answer:
         image_content = f'\n    await message.answer_photo(photo=types.InputFile(\'{image_answer}\'))'
         answer_content += image_content
@@ -55,7 +63,7 @@ def create_state_message_handler(imports: str, command: str, prev_state: Optiona
 
 def create_state_callback_handler(imports: str, command: str, prev_state: Optional[str], text_to_handle: Optional[str],
                                   state_to_set_name: Optional[str], text_of_answer: str, image_answer: Optional[str],
-                                  kb: str) -> str:
+                                  kb: Optional[str]) -> str:
     """Подготовка данных для генерации кода колбэк хэндлера
 
     Args:
@@ -72,17 +80,24 @@ def create_state_callback_handler(imports: str, command: str, prev_state: Option
     Returns:
         str: Сгенерированный код
     """
-
+    assert isinstance(imports, str)
+    assert isinstance(command, str)
+    assert isinstance(prev_state, Optional[str])
+    assert isinstance(text_to_handle, Optional[str])
+    assert isinstance(state_to_set_name, Optional[str])
+    assert isinstance(text_of_answer, str)
+    assert isinstance(image_answer, Optional[str])
+    assert isinstance(kb, Optional[str])
     handler_sample_name = 'callback_handler_sample.txt'
     list_of_handler_params = [
         command,
-        'text = \'{0}\''.format(text_to_handle) if text_to_handle else '',
+        'text = {0}'.format(repr(text_to_handle)) if text_to_handle else '',
         prev_state_code_line(prev_state)
     ]
     handler_params = ', '.join(element for element in list_of_handler_params if element)
     state_to_set_content = 'await States.{state_name}.set()'.format(state_name=state_to_set_name) if state_to_set_name else ''
     keyboard_if_exists = f', reply_markup={kb}' if kb else ""
-    answer_content = f'await callback.message.answer(text=\'{text_of_answer}\'{keyboard_if_exists})'
+    answer_content = f'await callback.message.answer(text={repr(text_of_answer)}{keyboard_if_exists})'
     if image_answer:
         image_content = f'\n    await callback.message.answer_photo(photo=types.InputFile(\'{image_answer}\'))'
         answer_content += image_content
