@@ -28,6 +28,7 @@ class BotDescription:
     bot_description: Optional[str] = None
     _start_message_id: Optional[int] = None
     _error_message_id: Optional[int] = None
+    bot_link: Optional[str] = None
 
     @property
     def start_message_id(self) -> Optional[int]:
@@ -53,7 +54,8 @@ class BotMessage:
     id: Optional[int] = None
     text: Optional[str] = None
     keyboard_type: ButtonTypesEnum = ButtonTypesEnum.REPLY
-    photo: Optional[bytes] = None
+    photo: Optional[str] = None
+    photo_file_format: Optional[str] = None
     photo_filename: Optional[str] = None
     video: Optional[str] = None
     file: Optional[str] = None

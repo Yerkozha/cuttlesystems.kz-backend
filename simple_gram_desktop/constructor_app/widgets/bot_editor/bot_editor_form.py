@@ -10,7 +10,7 @@ from b_logic.bot_api.i_bot_api import IBotApi, BotApiException
 from b_logic.data_objects import BotDescription, BotMessage, BotVariant, ButtonTypesEnum
 from common.localisation import tran
 from common.model_property import ModelProperty
-from common.utils.name_utils import gen_next_name
+from utils.name_utils import gen_next_name
 from constructor_app.graphic_scene.block_graphics_item import BlockGraphicsItem
 from constructor_app.graphic_scene.bot_scene import BotScene
 from constructor_app.widgets.bot_editor.message_editor_dialog import MessageEditorDialog
@@ -52,17 +52,20 @@ class BotEditorForm(QMainWindow):
 
     def set_bot(self, bot: typing.Optional[BotDescription]):
         assert isinstance(bot, BotDescription) or bot is None
-        self._bot = bot
-        self._bot_scene.set_bot(bot)
+        self._bot = self._bot_api.get_bot_by_id(bot_id=bot.id, with_link=1)
+        self._bot_scene.set_bot_scene(self._bot)
 
         if bot is not None:
-            self._prop_model.set_name(bot.bot_name)
-            self._prop_model.set_token(bot.bot_token)
-            self._prop_model.set_description(bot.bot_description)
+            self._prop_model.set_name(self._bot.bot_name)
+            self._prop_model.set_token(self._bot.bot_token)
+            self._prop_model.set_description(self._bot.bot_description)
+            self._prop_model.set_link(self._bot.bot_link)
+
         else:
             self._prop_model.set_name('')
             self._prop_model.set_token('')
             self._prop_model.set_description('')
+            self._prop_model.set_link('')
 
         self._load_bot_scene()
 
@@ -205,15 +208,26 @@ class BotEditorForm(QMainWindow):
         assert isinstance(block, BlockGraphicsItem)
         assert all(isinstance(variant, BotVariant) for variant in variants)
         message = block.get_message()
-        editor_dialog = MessageEditorDialog(self)
-        editor_dialog.set_message(block.get_message())
+        message = self._bot_api.get_one_message(message.id)
+        editor_dialog = MessageEditorDialog(self._bot_api, self._bot, self)
+        editor_dialog.set_message(message)
 
         # todo: тут появляется побочный эффект - после закрытия окна диалога следующий клик пропадает,
         #  надо бы поправить
 
         if editor_dialog.exec_() == QDialog.DialogCode.Accepted:
-            message.text = editor_dialog.message_text()
-            message.keyboard_type = editor_dialog.keyboard_type()
+            message.text = editor_dialog.get_message_text()
+            message.keyboard_type = editor_dialog.get_keyboard_type()
+            message.variable = editor_dialog.get_variable_name()
+            message.message_type = editor_dialog.get_message_type()
+
+            next_message = editor_dialog.get_next_message()
+            message.next_message_id = next_message.id if next_message is not None else None
+            print(f'Удаляем имэйдж? {editor_dialog.get_image_must_be_removed_state()}')
+            if editor_dialog.get_image_must_be_removed_state():
+                self._bot_api.remove_message_image(message)
+            message.photo = editor_dialog.get_message_image_path()
+            message.photo_filename = editor_dialog.get_message_image_filename()
             self._bot_api.change_message(message)
 
             block.change_message(message)
@@ -260,7 +274,7 @@ class BotEditorForm(QMainWindow):
             self._bot_api.set_bot_start_message(self._bot, selected_message)
 
             updated_bot_info = self._bot_api.get_bot_by_id(self._bot.id)
-            self._bot_scene.set_bot(updated_bot_info)
+            self._bot_scene.set_bot_scene(updated_bot_info)
             self._bot = updated_bot_info
             self._upload_bot_scene()
 
@@ -283,7 +297,7 @@ class BotEditorForm(QMainWindow):
             self._bot_api.set_bot_error_message(self._bot, selected_message)
 
             updated_bot_info = self._bot_api.get_bot_by_id(self._bot.id)
-            self._bot_scene.set_bot(updated_bot_info)
+            self._bot_scene.set_bot_scene(updated_bot_info)
             self._bot = updated_bot_info
             self._upload_bot_scene()
 
@@ -296,7 +310,7 @@ class BotEditorForm(QMainWindow):
             QMessageBox.warning(
                 self,
                 self._tr('Error'),
-                self._tr('Select only one message to set is as error message'))
+                self._tr('Select only one message to set as error message'))
 
     def _generate_unique_variant_name(self, variant_name: str, variants: typing.List[BotVariant]) -> str:
         assert isinstance(variant_name, str)

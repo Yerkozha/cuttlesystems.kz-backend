@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from abc import abstractmethod, ABC
 
 from b_logic.data_objects import BotDescription, BotMessage, BotVariant, ButtonTypesEnum, BotCommand, BotLogs
@@ -76,11 +76,12 @@ class IBotApi(ABC):
         pass
 
     @abstractmethod
-    def get_bot_by_id(self, id: int) -> BotDescription:
+    def get_bot_by_id(self, bot_id: int, with_link: int = 0) -> BotDescription:
         """
         Получить объект бота с заданным идентификатором
         Args:
-            id: идентификатор бота
+            bot_id: идентификатор бота
+            with_link: при значении 1 выведет доп поле bot_link
 
         Returns:
             объект бота
@@ -97,11 +98,11 @@ class IBotApi(ABC):
         pass
 
     @abstractmethod
-    def delete_bot(self, id: int) -> None:
+    def delete_bot(self, bot_id: int) -> None:
         """
         Удалить бота
         Args:
-            id: идентификатор бота
+            bot_id: идентификатор бота
         """
         pass
 
@@ -160,11 +161,47 @@ class IBotApi(ABC):
         pass
 
     @abstractmethod
+    def get_message_image_by_url(self, message: BotMessage) -> Optional[bytes]:
+        """
+        Получает изображение из сообщения.
+
+        Args:
+            message: сообщение, у которого есть фото
+
+        Returns:
+            изображение в виде байт-кода
+        """
+        pass
+
+    @abstractmethod
+    def get_one_message(self, message_id: int) -> BotMessage:
+        """
+        Получение информации о конкретном сообщении из БД.
+
+        Args:
+            message_id: id сообщения
+
+        Returns:
+            объект BotMessage
+        """
+        pass
+
+    @abstractmethod
     def change_message(self, message: BotMessage) -> None:
         """
         Изменить сообщение
         Args:
             message: сообщение, которое необходимо изменить
+        """
+        pass
+
+    @abstractmethod
+    def remove_message_image(self, message: BotMessage) -> None:
+        """
+        Удаление изображения у сообщения.
+
+        Args:
+            message: сообщение, у которого необходимо удалить изображение
         """
         pass
 

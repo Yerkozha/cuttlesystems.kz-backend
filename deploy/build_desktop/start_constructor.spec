@@ -1,18 +1,49 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
+from enum import Enum
+import time
+import PyInstaller.config
+import os
+import sys
+
+# обходное решение для добавления текущей директории в 'PYTHONPATH'
+#  небходимо для того, чтобы проходил import, выполняемый строкой ниже
+sys.path.append('.')
+
+from python_venv_execs_paths import get_building_dir
 
 
 block_cipher = None
 
-# define the function to get the 'start_constructor.spec'-file path
-# D:\Git Repos\tg_bot_constructor\deploy\build_desktop
+
 def spec_file_dir() -> Path:
+    """
+    define the function to get the 'start_constructor.spec'-file path
+    D:\Git Repos\tg_bot_constructor\deploy\build_desktop
+    """
     return Path(SPECPATH)
 
-# define the function to get the project_directory path
-# D:\Git Repos\tg_bot_constructor
+
 def application_project_dir() -> Path:
-    return spec_file_dir() / Path('..') / '..'
+    """
+    define the function to get the project_directory path
+    D:\Git Repos\tg_bot_constructor\simple_gram_desktop
+    """
+    return spec_file_dir() / Path('..') / '..' / 'simple_gram_desktop'
+
+
+# working and destination directories for executable file creation
+build_dir = get_building_dir() / 'build'
+dist_dir = get_building_dir() / 'dist'
+
+build_dir.mkdir(exist_ok=True)
+dist_dir.mkdir(exist_ok=True)
+
+
+# define working directory for executable file creation
+PyInstaller.config.CONF['workpath'] = str(build_dir)
+# define destination directory for executable file creation
+PyInstaller.config.CONF['distpath'] = str(dist_dir)
 
 
 a = Analysis(
@@ -22,10 +53,9 @@ a = Analysis(
     ],
     binaries=[],
     datas=[(
-        application_project_dir() / 'desktop_constructor_app' / 'constructor_app' / 'translations' / '*.qm', \
-        Path('desktop_constructor_app') / 'constructor_app' / 'translations'
+        application_project_dir() / 'constructor_app' / 'translations' / '*.qm',
+            Path('constructor_app') / 'translations'
     )],
-    hiddenimports=['desktop_constructor_app'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -42,7 +72,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='simple_gram',
+    name='simple_gram_'+time.strftime("%Y_%m_%d__%H_%M_%S"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -50,8 +80,7 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=True,
-    icon=str(application_project_dir() / 'desktop_constructor_app' \
-    / 'constructor_app' / 'images' / 'cuttle_systems.ico'),
+    icon=str(application_project_dir() / 'constructor_app' / 'images' / 'cuttle_systems.ico'),
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
