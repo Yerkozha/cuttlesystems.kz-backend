@@ -14,7 +14,7 @@ SECRET_KEY = 'django-insecure-l^#t200))@a#@3^g7vhy4zk(0)pfg-xfecdr+$@41hw*id)(m6
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-DOMAIN_HOST = os.getenv('DOMAIN_HOST', '127.0.0.1:8000')
+DOMAIN_HOST = os.getenv('DOMAIN_HOST', '127.0.0.1:8003')
 HOST_PROTOCOL = os.getenv('HOST_PROTOCOL', 'http')
 
 ALLOWED_HOSTS = ['*']
